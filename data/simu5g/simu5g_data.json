@@ -1,0 +1,104 @@
+{
+  "metadata": {
+    "generated_at": "2026-05-14 21:06:52",
+    "description": "Synthetic Simu5G failure scenarios for TelecomRAG RCA demos",
+    "num_scenarios": 5
+  },
+  "scenarios": [
+    {
+      "scenario_id": "SIM-001",
+      "name": "PCI Collision",
+      "description": "Two neighboring cells assigned same PCI causing interference",
+      "symptoms": [
+        "High interference",
+        "Frequent HO failures",
+        "Reduced SINR"
+      ],
+      "affected_cells": [
+        "Cell_001",
+        "Cell_002"
+      ],
+      "root_cause": "Incorrect PCI planning in dense urban deployment",
+      "resolution": "Re-assign PCI for Cell_002 to avoid collision",
+      "severity": "Major",
+      "simulation_time": "2026-05-07",
+      "context": "Simu5G Scenario SIM-001: PCI Collision. Two neighboring cells assigned same PCI causing interference. Root Cause: Incorrect PCI planning in dense urban deployment. Resolution: Re-assign PCI for Cell_002 to avoid collision. Symptoms: High interference, Frequent HO failures, Reduced SINR."
+    },
+    {
+      "scenario_id": "SIM-002",
+      "name": "RACH Overload",
+      "description": "Excessive Random Access attempts causing preamble collision",
+      "symptoms": [
+        "RRC setup failures",
+        "High PRACH utilization",
+        "Access delays"
+      ],
+      "affected_cells": [
+        "Cell_005"
+      ],
+      "root_cause": "Massive IoT device registration after power outage recovery",
+      "resolution": "Adjust PRACH configuration (increase preambles, backoff timer)",
+      "severity": "Critical",
+      "simulation_time": "2026-05-08",
+      "context": "Simu5G Scenario SIM-002: RACH Overload. Excessive Random Access attempts causing preamble collision. Root Cause: Massive IoT device registration after power outage recovery. Resolution: Adjust PRACH configuration (increase preambles, backoff timer). Symptoms: RRC setup failures, High PRACH utilization, Access delays."
+    },
+    {
+      "scenario_id": "SIM-003",
+      "name": "Beam Failure Recovery",
+      "description": "UE unable to maintain beam alignment in mmWave frequency",
+      "symptoms": [
+        "RLF events",
+        "Throughput drops",
+        "Beam failure indications"
+      ],
+      "affected_cells": [
+        "Cell_008",
+        "Cell_009"
+      ],
+      "root_cause": "Moving obstacles in dense urban canyon affecting mmWave beams",
+      "resolution": "Optimize beam management parameters",
+      "severity": "Major",
+      "simulation_time": "2026-05-09",
+      "context": "Simu5G Scenario SIM-003: Beam Failure Recovery. UE unable to maintain beam alignment in mmWave frequency. Root Cause: Moving obstacles in dense urban canyon affecting mmWave beams. Resolution: Optimize beam management parameters. Symptoms: RLF events, Throughput drops, Beam failure indications."
+    },
+    {
+      "scenario_id": "SIM-004",
+      "name": "Handover Ping-Pong",
+      "description": "Rapid successive handovers between two cells",
+      "symptoms": [
+        "High HO rate",
+        "Signaling storm",
+        "Poor user experience"
+      ],
+      "affected_cells": [
+        "Cell_003",
+        "Cell_004"
+      ],
+      "root_cause": "A3 event hysteresis configured too low (1dB)",
+      "resolution": "Increase A3 hysteresis to 3dB, adjust TTT to 320ms",
+      "severity": "Warning",
+      "simulation_time": "2026-05-10",
+      "context": "Simu5G Scenario SIM-004: Handover Ping-Pong. Rapid successive handovers between two cells. Root Cause: A3 event hysteresis configured too low (1dB). Resolution: Increase A3 hysteresis to 3dB, adjust TTT to 320ms. Symptoms: High HO rate, Signaling storm, Poor user experience."
+    },
+    {
+      "scenario_id": "SIM-005",
+      "name": "Backhaul Congestion",
+      "description": "Backhaul link saturated causing E2E throughput degradation",
+      "symptoms": [
+        "Low throughput",
+        "High latency",
+        "Packet drops"
+      ],
+      "affected_cells": [
+        "Cell_010",
+        "Cell_011",
+        "Cell_012"
+      ],
+      "root_cause": "Unexpected traffic surge from stadium event",
+      "resolution": "Implement QoS prioritization and traffic shaping",
+      "severity": "Major",
+      "simulation_time": "2026-05-11",
+      "context": "Simu5G Scenario SIM-005: Backhaul Congestion. Backhaul link saturated causing E2E throughput degradation. Root Cause: Unexpected traffic surge from stadium event. Resolution: Implement QoS prioritization and traffic shaping. Symptoms: Low throughput, High latency, Packet drops."
+    }
+  ]
+}
