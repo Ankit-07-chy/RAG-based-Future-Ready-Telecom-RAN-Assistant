@@ -4,4 +4,6 @@ version = "0.1.0"
 description = "This project presents TelecomRAG, a domain-specific Retrieval-Augmented Generation (RAG) application tailored for telecom RAN tasks. The system integrates telecom-specific knowledge bases—including 3GPP technical specifications (Release 16 & 18) and O-RAN datasets—with an efficient retrieval pipeline and a fine-tuned Language Model to deliver accurate, explainable, and real-time responses. The application supports automated root cause analysis, 3GPP standards Q&A, anomaly detection, and network optimization recommendations."
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "pandas>=3.0.3",
+]

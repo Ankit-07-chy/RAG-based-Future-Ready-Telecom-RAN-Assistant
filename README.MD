@@ -1,2 +1,2 @@
-# Telecome RAG - By TEAM Name
+# Telecome RAG - By TeloMate
 
