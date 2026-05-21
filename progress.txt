@@ -1,0 +1,5 @@
+# Parsing 3Gpp Docs
+    1. Loading of 3GPP Docs was done => Docling loader, 
+    2. Cleaning Step for 3GPP docs (Definitions, symbols and abbreviations; Performed Cleaning after this only) ==> Till now cleaning on docs is not done in better manner, we required clean text
+    3. For Embedding BAAI/bge-small-en model selected
+    4. For Vector DB I used FAISS 
