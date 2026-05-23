@@ -53,5 +53,4 @@ data/raw/*.zip
 Thumbs.db
 
 # Unrelated files
-cpi.py
 *.ipynb~
