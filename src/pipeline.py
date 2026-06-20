@@ -1,7 +1,9 @@
 """
 Telecom RAG Pipeline 
-steps: parse all sources → embed → build FAISS index → save.
-Sources: 3GPP .docx, TeleQnA, O-RAN alarms/KPIs, Simu5G scenarios.
+steps: parse all sources - embed - build FAISS index - save.
+-----------------------------------------------------------
+Sources: 3GPP.docx, TeleQnA, O-RAN alarms/KPIs, Simu5G scenarios.
+-----------------------------------------------------------
 """
 
 import importlib.util # for dynamic import of embed_vectorstore.py
@@ -17,7 +19,19 @@ from langchain_core.documents import Document # for Document objects used in emb
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config import MIN_CHUNK_WORDS, BATCH_SIZE, VECTORSTORE_PATH, RAW_DIR
+#------------------------------Config and imports--------------------------------
+from src.config import (
+    BATCH_SIZE,
+    CHUNK_OVERLAP_WORDS,
+    CHUNK_SIZE_WORDS,
+    LOGS_DIR,
+    MIN_CHUNK_WORDS,
+    RAW_3GPP_DIR,
+    RAW_ORAN_DIR,
+    RAW_SIMU5G_DIR,
+    RAW_TELEQNA_DIR,
+    VECTORSTORE_PATH,
+)
 from src.parse_3gpp import load_and_chunk_3gpp_docs, validate_chunks
 from src.parse_teleqna import load_teleqna_documents
 from src.parse_oran import parse_oran_data
@@ -34,7 +48,6 @@ _embed_spec.loader.exec_module(_embed_module)
 embed_and_store = _embed_module.embed_and_store
 
 # Logging — both stderr and logs/ file
-LOGS_DIR = PROJECT_ROOT / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 _log_file = LOGS_DIR / f"pipeline_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
@@ -92,19 +105,25 @@ def run_pipeline(
     # Step 1 — 3GPP
     logger.info("\n[1/4] Parsing 3GPP Release 16/18 .docx documents...")
     try:
-        gpp_docs = load_and_chunk_3gpp_docs(RAW_DIR / "3gpp_docs", min_chunk_size=MIN_CHUNK_WORDS)
-        validate_chunks(gpp_docs, sample_size=min(5, len(gpp_docs)))
+        gpp_docs = load_and_chunk_3gpp_docs(
+            RAW_3GPP_DIR,
+            chunk_size_words=CHUNK_SIZE_WORDS,
+            overlap_words=CHUNK_OVERLAP_WORDS,
+        )
     except Exception as e:
         logger.warning(f"3GPP parsing failed: {e}")
         gpp_docs = []
+    if gpp_docs:
+        validate_chunks(gpp_docs, sample_size=min(5, len(gpp_docs)))
     _log_chunk_stats("3gpp", gpp_docs)
     counts["3gpp"] = len(gpp_docs)
     all_docs.extend(gpp_docs)
 
-    # Step 2 — TeleQnA
-    logger.info("\n[2/4] Parsing TeleQnA Q&A dataset...")
+    # Step 2 — TeleQnA (TRAIN split only — held-out test questions are kept out
+    # of the corpus so evaluation cannot trivially self-retrieve the answer).
+    logger.info("\n[2/4] Parsing TeleQnA Q&A dataset (train split only)...")
     try:
-        teleqna_docs = load_teleqna_documents(RAW_DIR / "teleqna_dataset")
+        teleqna_docs = load_teleqna_documents(RAW_TELEQNA_DIR, split="train")
     except Exception as e:
         logger.warning(f"TeleQnA parsing failed: {e}")
         teleqna_docs = []
@@ -115,7 +134,7 @@ def run_pipeline(
     # Step 3 — O-RAN
     logger.info("\n[3/4] Parsing O-RAN alarm/KPI logs...")
     try:
-        oran_docs = parse_oran_data(RAW_DIR / "oran_datasets")
+        oran_docs = parse_oran_data(RAW_ORAN_DIR)
     except Exception as e:
         logger.warning(f"O-RAN parsing failed: {e}")
         oran_docs = []
@@ -126,7 +145,7 @@ def run_pipeline(
     # Step 4 — Simu5G
     logger.info("\n[4/4] Parsing Simu5G failure scenarios...")
     try:
-        simu5g_docs = parse_simu5g_data(RAW_DIR / "simu5g")
+        simu5g_docs = parse_simu5g_data(RAW_SIMU5G_DIR)
     except Exception as e:
         logger.warning(f"Simu5G parsing failed: {e}")
         simu5g_docs = []
