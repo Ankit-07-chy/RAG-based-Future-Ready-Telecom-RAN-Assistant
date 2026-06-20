@@ -1,0 +1,63 @@
+{
+  "embedding": {
+    "model_name": "BAAI/bge-base-en-v1.5",
+    "device": "cpu",
+    "batch_size": 32,
+    "normalize_embeddings": true,
+    "max_memory_usage": 0.85
+  },
+  "retriever": {
+    "top_k": 20,
+    "top_k_rerank": 5,
+    "similarity_threshold": 0.3,
+    "use_hybrid": true,
+    "use_reranking": true,
+    "use_source_diversity": true
+  },
+  "llm": {
+    "model_name": "mixtral-8x7b-32768",
+    "api_key": "",
+    "device": "cpu",
+    "quantize": false,
+    "max_tokens": 1024,
+    "temperature": 0.3,
+    "top_p": 0.95
+  },
+  "reranker": {
+    "model_name": "cross-encoder/mmarco-MiniLMv2-L12-H384-v1",
+    "top_k": 5,
+    "min_score": 0.0
+  },
+  "lora": {
+    "rank": 16,
+    "alpha": 32,
+    "dropout": 0.05,
+    "target_modules": [
+      "q_proj",
+      "v_proj"
+    ],
+    "bias": "none",
+    "task_type": "CAUSAL_LM"
+  },
+  "data": {
+    "raw_3gpp_dir": "C:\\Users\\ankit\\Desktop\\Telecom_Rag\\data\\raw\\3gpp_docs",
+    "raw_teleqna_dir": "C:\\Users\\ankit\\Desktop\\Telecom_Rag\\data\\raw\\teleqna",
+    "raw_oran_dir": "C:\\Users\\ankit\\Desktop\\Telecom_Rag\\data\\raw\\oran_datasets",
+    "raw_simu5g_dir": "C:\\Users\\ankit\\Desktop\\Telecom_Rag\\data\\raw\\simu5g",
+    "processed_dir": "C:\\Users\\ankit\\Desktop\\Telecom_Rag\\data\\processed",
+    "vectorstore_dir": "C:\\Users\\ankit\\Desktop\\Telecom_Rag\\data\\vectorstore"
+  },
+  "chunking": {
+    "min_chunk_size": 200,
+    "max_chunk_size": 1000,
+    "overlap_ratio": 0.1,
+    "min_chunk_words": 50,
+    "parent_context_lines": 3
+  },
+  "api": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "debug": false,
+    "workers": 4
+  }
+}

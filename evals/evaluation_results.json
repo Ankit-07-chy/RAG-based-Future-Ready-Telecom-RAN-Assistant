@@ -1,0 +1,12 @@
+{
+  "mrr": 1.0,
+  "top_3_accuracy": 1.0,
+  "top_5_accuracy": 1.0,
+  "recall_at_5": 1.0,
+  "recall_at_10": 1.0,
+  "semantic_match_accuracy": 0.0,
+  "exact_match_accuracy": 0.0,
+  "faithfulness": 1.0,
+  "context_recall": 1.0,
+  "timestamp": "2026-06-15T11:03:28.439452"
+}

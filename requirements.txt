@@ -1,0 +1,50 @@
+# Core LLM & RAG
+langchain>=0.1.0
+langchain-core>=0.1.0
+langchain-community>=0.0.10
+langchain-huggingface>=0.0.10
+langchain-docling>=0.1.0
+
+# Embeddings & Vector Store
+huggingface-hub>=0.17.0
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.4
+
+# Document Processing
+python-docx>=0.8.11
+docling>=1.0.0
+
+# LLM Inference (Groq Cloud)
+transformers>=4.35.0
+torch>=2.0.0  # CPU version
+bitsandbytes>=0.41.0  # 4-bit quantization
+groq>=0.4.0  # Groq API client
+
+# Hybrid Retrieval
+rank-bm25>=0.2.2  # BM25 keyword search
+sentence-transformers>=2.2.0  # For re-ranking
+
+# Web API
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.0.0
+streamlit>=1.28.0
+
+# Evaluation & Benchmarking
+ragas>=0.0.18
+scikit-learn>=1.3.0  # For evaluation metrics
+datasets>=2.14.0  # RAGAS dependency
+
+# Utilities
+tqdm>=4.66.0
+numpy>=1.24.0
+pandas>=2.0.0
+psutil>=5.9.0
+python-dotenv>=1.0.0
+jsonlines>=4.0.0
+
+# Development (optional)
+jupyter>=1.0.0
+pytest>=7.4.0
+black>=23.0.0
+flake8>=6.1.0

@@ -1,6 +1,10 @@
 import json
 import random
 from datetime import datetime, timedelta
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SIMU5G_OUTPUT_DIR = PROJECT_ROOT / "data" / "raw" / "simu5g"
 
 def generate_simu5g_scenarios():
     scenarios = [
@@ -75,12 +79,14 @@ def generate_simu5g_scenarios():
         "scenarios": scenarios
     }
     
-    with open("data/simu5g/simu5g_data.json", "w") as f:
+    SIMU5G_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = SIMU5G_OUTPUT_DIR / "simu5g_data.json"
+    with open(output_path, "w") as f:
         json.dump(data, f, indent=2)
-    
+
     print(f"✅ Generated Simu5G dataset:")
     print(f"   - {len(scenarios)} failure scenarios")
-    print("✅ Saved to: data/simu5g/simu5g_data.json")
+    print(f"✅ Saved to: {output_path}")
 
 if __name__ == "__main__":
     generate_simu5g_scenarios()

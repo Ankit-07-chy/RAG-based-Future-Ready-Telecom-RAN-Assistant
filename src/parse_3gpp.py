@@ -1,31 +1,33 @@
-# Importing
-from  pathlib import Path
-from langchain_docling import DoclingLoader
-from langchain_core.documents import Document
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import FAISS 
-import re
-from tqdm import tqdm 
+"""
+parse_3gpp.py 
+"""
+#--------------------Import-------------------------------------------------------------
+from pathlib import Path # used for file path manipulations
+import re # for regex-based cleaning and parsing
+from tqdm import tqdm # for progress bars
+import argparse # for CLI argument parsing
+import logging # for better error reporting
+from types import SimpleNamespace  # used for dot notation for simple objects
+from dataclasses import dataclass, field # used for autogeneration of few methods inside class
+from typing import List, Dict, Any # for type annotations
+#---------------------------------------------------------------------------------------------
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  CONSTANTS
-# ─────────────────────────────────────────────────────────────────────────────
 
+#---------------------Used Imports---------------------------------------------
+from langchain_docling import DoclingLoader # for loading .docx files (if available)
+from langchain_core.documents import Document # for representing chunks as Documents
+from langchain_huggingface import HuggingFaceEmbeddings # for embedding the chunks 
+from langchain_community.vectorstores import FAISS # for storing the chunks in a vector database
+#---------------------------------------------------------------------------------------------
+
+#---------------------Constants & Configurations---------------------------------------------
 MIN_CHUNK_WORDS      = 50    # chunks below this are discarded as noise
 DEFAULT_CHUNK_SIZE   = 200   # target min words per chunk
 PARENT_CONTEXT_LINES = 3     # how many lines of parent section to prepend to child chunks
+#---------------------------------------------------------------------------------------------
 
-
-# ============================================================================
-# TEXT CLEANING FUNCTIONS
-# ============================================================================
-
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 #  STEP 1 — CLEANING
-# ─────────────────────────────────────────────────────────────────────────────
-
+# -----------------
 def remove_preface(text: str) -> str:
     """
     Remove boilerplate before 'Definitions, Symbols and Abbreviations'.
@@ -39,7 +41,6 @@ def remove_preface(text: str) -> str:
     if len(matches) >= 2:
         return text[matches[1].start():]
     elif len(matches) == 1:
-        # Only one match found — still better to start from there than keep boilerplate
         return text[matches[0].start():]
     return text
 
@@ -48,7 +49,6 @@ def remove_void_sections(text: str) -> str:
     """
     Remove 'Void' placeholder sections that 3GPP uses when a clause was deleted.
     These add noise to the vector store.
-    Example:  '5.3.2  Void'
     """
     return re.sub(
         r'^\d+(?:\.\d+)*\s+Void\s*$',
@@ -77,24 +77,9 @@ def clean_document(text: str) -> str:
     text = remove_void_sections(text)
     text = normalise_text(text)
     return text
+#---------------------------------------------------------------------------------------------
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  STEP 2 — SECTION DETECTION
-# ─────────────────────────────────────────────────────────────────────────────
-
-# FIX: Loosened regex compared to original.
-# Original required title to start with capital and contain only letters/spaces/hyphens.
-# This missed headers like:
-#   "5.3.4 UE behaviour in RRC_IDLE"  (underscore)
-#   "6.1.2 NR and E-UTRA"             (hyphen mid-word)
-#   "7.2 TS 38.331 reference"         (spec number in title)
-#
-# New pattern:
-#   - Section number: one or more digit groups separated by dots  e.g. 5, 5.3, 5.3.4
-#   - At least one space
-#   - Title: anything that starts with a letter (upper or lower), min 3 chars
-#   - Anchored to start of line (MULTILINE)
+#  STEP 2 — SECTION PARSING
 
 SECTION_PATTERN = re.compile(
     r'^(\d+(?:\.\d+)*)\s{1,4}([A-Za-z].{2,}?)$',
@@ -105,8 +90,6 @@ SECTION_PATTERN = re.compile(
 def is_valid_section_title(title: str) -> bool:
     """
     Extra guard to reject false-positive section matches.
-    Filters out things like pure number lines, very short noise lines,
-    and common false positives from table formatting.
     """
     title = title.strip()
     if len(title) < 3:
@@ -120,7 +103,7 @@ def is_valid_section_title(title: str) -> bool:
     return True
 
 
-def find_sections(text: str) -> list[dict]:
+def find_sections(text: str) -> List[Dict[str, Any]]:
     """
     Find all section headers in the text.
     Returns list of dicts:
@@ -137,37 +120,24 @@ def find_sections(text: str) -> list[dict]:
                 'start': match.start()
             })
     return sections
+#---------------------------------------------------------------------------------------------
+
+# STEP 3 — HIERARCHICAL CHUNKING
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  STEP 3 — CHUNKING
-# ─────────────────────────────────────────────────────────────────────────────
-
-def get_parent_context(section_num: str, all_sections: list[dict], full_text: str) -> str:
-    """
-    FIX: Original code had no parent context injection.
-    
-    For a child section like '5.3.2', find its parent '5.3' and extract
-    the first PARENT_CONTEXT_LINES lines as a context header to prepend.
-    
-    This makes every chunk self-contained — the LLM knows what the parent
-    clause is about even when only seeing the child chunk.
-    """
+def get_parent_context(section_num: str, all_sections: List[Dict[str, Any]], full_text: str) -> str:
     parts = section_num.split('.')
     if len(parts) <= 1:
         return ''  # top-level section has no parent
 
     parent_num = '.'.join(parts[:-1])
 
-    # Find parent section in the list
     parent = next((s for s in all_sections if s['num'] == parent_num), None)
     if not parent:
         return ''
 
-    # Find where the parent section's content starts and ends
     parent_idx = all_sections.index(parent)
     parent_start = parent['start']
-    # Parent ends where the next section starts (or end of text)
     if parent_idx + 1 < len(all_sections):
         parent_end = all_sections[parent_idx + 1]['start']
     else:
@@ -179,22 +149,13 @@ def get_parent_context(section_num: str, all_sections: list[dict], full_text: st
     if not parent_lines:
         return ''
 
-    # Take heading + first few content lines as context
     context_lines = parent_lines[:PARENT_CONTEXT_LINES]
-    return f"[Parent: §{parent_num} — {parent['title']}]\n" + "\n".join(context_lines)
+    return f"[Parent: §{parent_num} — {parent['title']}\n]".replace('\n]', '\n') + "\n".join(context_lines)
 
 
-def split_into_section_chunks(full_text: str) -> list[dict]:
-    """
-    Split the full document text into per-section raw chunks.
-    Each chunk contains the complete text of one section.
-    
-    Returns list of:
-        { 'num': '5.3', 'title': 'Header text', 'content': '...' }
-    """
+def split_into_section_chunks(full_text: str) -> List[Dict[str, Any]]:
     sections = find_sections(full_text)
     if not sections:
-        # Fallback: treat entire document as one chunk
         return [{'num': '0', 'title': 'Full Document', 'content': full_text}]
 
     raw_chunks = []
@@ -214,8 +175,13 @@ def split_into_section_chunks(full_text: str) -> list[dict]:
 
 
 def get_section_depth(section_num: str) -> int:
-    """Return depth of section: '5' → 1, '5.3' → 2, '5.3.1' → 3"""
     return len(section_num.split('.'))
+
+
+def assemble_chunk(parent_context: str, body: str) -> str:
+    if parent_context:
+        return f"{parent_context}\n\n{body}"
+    return body
 
 
 def chunk_large_section_by_paragraphs(
@@ -224,11 +190,7 @@ def chunk_large_section_by_paragraphs(
     section_title: str,
     parent_context: str,
     min_chunk_size: int
-) -> list[Document]:
-    """
-    Last-resort splitter: when a section has no subsections and is too large,
-    split by paragraphs and group until we reach min_chunk_size.
-    """
+) -> List[Document]:
     paragraphs    = [p.strip() for p in content.split('\n\n') if p.strip()]
     chunks        = []
     current_paras = []
@@ -259,7 +221,6 @@ def chunk_large_section_by_paragraphs(
             current_paras.append(para)
             current_words += para_words
 
-    # Remaining paragraphs
     if current_paras:
         chunk_text = assemble_chunk(parent_context, '\n\n'.join(current_paras))
         chunks.append(Document(
@@ -276,36 +237,10 @@ def chunk_large_section_by_paragraphs(
     return chunks
 
 
-def assemble_chunk(parent_context: str, body: str) -> str:
-    """
-    Combine optional parent context header with the chunk body.
-    """
-    if parent_context:
-        return f"{parent_context}\n\n{body}"
-    return body
-
-
 def chunk_with_hierarchy(
     full_text: str,
     min_chunk_size: int = DEFAULT_CHUNK_SIZE
-) -> list[Document]:
-    """
-    Main chunking function.
-    
-    Strategy:
-    1. Split text into per-section raw blocks using section headers.
-    2. For each block:
-       a. If small enough → emit as one chunk with parent context prepended.
-       b. If large and has subsections → split at subsections (preserving their headers).
-       c. If large and no subsections → split by paragraphs.
-    3. Filter out any chunk below MIN_CHUNK_WORDS.
-    
-    FIX vs original:
-    - Section headers are NO LONGER lost when splitting (was a bug in original).
-    - Subsection metadata uses REAL section numbers, not enumerate index.
-    - Parent context is injected into every child chunk.
-    - Minimum word count filter removes noise chunks.
-    """
+) -> List[Document]:
     all_sections = find_sections(full_text)
     raw_chunks   = split_into_section_chunks(full_text)
     final_docs   = []
@@ -318,7 +253,6 @@ def chunk_with_hierarchy(
 
         parent_context = get_parent_context(section_num, all_sections, full_text)
 
-        # ── Case A: Small enough — emit as single chunk ──────────────────
         if word_count <= min_chunk_size:
             chunk_text = assemble_chunk(parent_context, content)
             if len(chunk_text.split()) >= MIN_CHUNK_WORDS:
@@ -333,9 +267,6 @@ def chunk_with_hierarchy(
                 ))
             continue
 
-        # ── Case B: Large — try splitting by direct subsections ──────────
-        # We look for subsections that are exactly ONE level deeper.
-        # e.g., for section '5.3', we look for '5.3.X' but NOT '5.3.X.Y'
         current_depth    = get_section_depth(section_num)
         subsec_pattern   = re.compile(
             rf'^({re.escape(section_num)}\.\d+)\s{{1,4}}([A-Za-z].{{2,}}?)$',
@@ -344,11 +275,8 @@ def chunk_with_hierarchy(
         subsec_matches   = list(subsec_pattern.finditer(content))
 
         if subsec_matches:
-            # FIX: Use finditer + manual slicing to PRESERVE subsection headers.
-            # Original used re.split() which consumed (discarded) the matched header text.
             split_positions = [m.start() for m in subsec_matches] + [len(content)]
 
-            # Text before the first subsection (intro paragraph of parent)
             intro = content[:split_positions[0]].strip()
             if intro and len(intro.split()) >= MIN_CHUNK_WORDS:
                 chunk_text = assemble_chunk(parent_context, intro)
@@ -363,16 +291,13 @@ def chunk_with_hierarchy(
                     }
                 ))
 
-            # Each subsection — slice from its start to next subsection start
             for i, match in enumerate(subsec_matches):
                 sub_start = split_positions[i]
                 sub_end   = split_positions[i + 1]
                 sub_text  = content[sub_start:sub_end].strip()
 
-                # FIX: Use the REAL section number from the regex match,
-                # not an enumerate index like the original did.
-                real_sub_num   = match.group(1).strip()   # e.g. '5.3.2'
-                real_sub_title = match.group(2).strip()   # e.g. 'UE behaviour'
+                real_sub_num   = match.group(1).strip()
+                real_sub_title = match.group(2).strip()
 
                 if not sub_text or len(sub_text.split()) < MIN_CHUNK_WORDS:
                     continue
@@ -392,7 +317,6 @@ def chunk_with_hierarchy(
                         }
                     ))
                 else:
-                    # Subsection itself is large → paragraph-split it
                     para_chunks = chunk_large_section_by_paragraphs(
                         sub_text, real_sub_num, real_sub_title,
                         sub_parent_ctx, min_chunk_size
@@ -400,7 +324,6 @@ def chunk_with_hierarchy(
                     final_docs.extend(para_chunks)
 
         else:
-            # ── Case C: No subsections — split by paragraphs ─────────────
             para_chunks = chunk_large_section_by_paragraphs(
                 content, section_num, section_title,
                 parent_context, min_chunk_size
@@ -409,88 +332,88 @@ def chunk_with_hierarchy(
 
     print(f"  → {len(final_docs)} chunks after filtering (min {MIN_CHUNK_WORDS} words)")
     return final_docs
+#---------------------------------------------------------------------------------------------
 
-
-# ─────────────────────────────────────────────────────────────────────────────
 #  STEP 4 — DOCUMENT LOADING & ORCHESTRATION
-# ─────────────────────────────────────────────────────────────────────────────
 
-def load_and_chunk_3gpp_docs(
+#-------------------------Load & chunk documents one at a time (streaming)----------------
+def load_and_chunk_3gpp_docs_streaming(
     three_gpp_dir: Path,
-    glob_pattern: str = "*.docx",       # FIX: was hardcoded to one file
+    glob_pattern: str = "*.docx",
     min_chunk_size: int = DEFAULT_CHUNK_SIZE
-) -> list[Document]:
-    """
-    Load all 3GPP documents from a directory, clean, chunk, and return
-    a flat list of LangChain Documents with full metadata.
-
-    Args:
-        three_gpp_dir:  Path to folder containing 3GPP .docx files.
-        glob_pattern:   File pattern to match. Default '*.docx' processes all.
-                        Use e.g. '37340-h30.docx' for a single file during testing.
-        min_chunk_size: Target minimum words per chunk.
-    """
-    doc_files = list(three_gpp_dir.glob(glob_pattern))
+):
+    
+    doc_files = sorted(list(three_gpp_dir.glob(glob_pattern)))
     if not doc_files:
         print(f"[WARNING] No files found in {three_gpp_dir} matching '{glob_pattern}'")
-        return []
+        return
 
-    all_docs = []
+    total_chunks = 0
+    for doc_idx, doc_file in enumerate(doc_files, 1):
+        loader = DoclingLoader(str(doc_file))
+        raw_pages = list(loader.load())
+        
+        if not raw_pages:
+            print(f"  [SKIP] {doc_file.name} — loader returned no content")
+            continue
+        
+        # Verify we have content in each page
+        pages_with_content = [p for p in raw_pages if p.page_content]
+        pages_without_content = len(raw_pages) - len(pages_with_content)
+        
+        if pages_without_content > 0:
+            print(f"  [WARNING] {pages_without_content} pages have no content")
 
-    for doc_file in tqdm(doc_files, desc="Processing 3GPP documents"):
-        try:
-            loader = DoclingLoader(str(doc_file))
-            raw_pages = list(loader.lazy_load())
+        page_contents = []
+        for page_num, page in enumerate(raw_pages, 1):
+            if page.page_content:
+                page_contents.append(page.page_content)
+        
+        full_text = "\n\n".join(page_contents)
+        
+        print(f"  Full document length: {len(full_text):,} characters")
+        print(f"  Pages with content: {len(page_contents)}/{len(raw_pages)}")
+        
+        full_text = clean_document(full_text)
+        print(f"After cleaning: {len(full_text):,} chars")
 
-            if not raw_pages:
-                print(f"  [SKIP] {doc_file.name} — DoclingLoader returned no content")
-                continue
+        chunks = chunk_with_hierarchy(full_text, min_chunk_size=min_chunk_size)
 
-            # Merge all pages into one text block
-            # (DoclingLoader may split a single docx across multiple Document objects)
-            full_text = "\n\n".join(p.page_content for p in raw_pages if p.page_content)
+        for chunk in chunks:
+            chunk.metadata.update({
+                'source':   str(doc_file),
+                'doc_name': doc_file.name,
+                'doc_type': '3gpp_spec'
+            })
 
-            print(f"\n[INFO] {doc_file.name} — raw length: {len(full_text):,} chars")
+        print(f"    Created {len(chunks)} chunks")
+        total_chunks += len(chunks)
 
-            # Clean
-            full_text = clean_document(full_text)
-            print(f"       After cleaning: {len(full_text):,} chars")
+        del full_text, raw_pages
+        yield doc_file.name, chunks
 
-            # Chunk
-            chunks = chunk_with_hierarchy(full_text, min_chunk_size=min_chunk_size)
-
-            # Attach document-level metadata to every chunk
-            for chunk in chunks:
-                chunk.metadata.update({
-                    'source':   str(doc_file),
-                    'doc_name': doc_file.name,
-                    'doc_type': '3gpp_spec'
-                })
-
-            all_docs.extend(chunks)
-            print(f"       Created {len(chunks)} chunks")
-
-        except Exception as e:
-            print(f"  [ERROR] Failed to process {doc_file}: {e}")
-            import traceback
-            traceback.print_exc()
 
     print(f"\n{'─'*60}")
-    print(f"Total 3GPP chunks ready for embedding: {len(all_docs)}")
+    print(f"Total 3GPP chunks generated: {total_chunks}")
     print(f"{'─'*60}")
+
+
+# ------------------------Load all the docs and chunk them at once (legacy)----------------
+def load_and_chunk_3gpp_docs(
+    three_gpp_dir: Path,
+    glob_pattern: str = "*.docx",
+    min_chunk_size: int = DEFAULT_CHUNK_SIZE
+) -> List[Document]:
+    
+    all_docs: List[Document] = []
+    for doc_name, chunks in load_and_chunk_3gpp_docs_streaming(three_gpp_dir, glob_pattern, min_chunk_size):
+        all_docs.extend(chunks)
     return all_docs
+#---------------------------------------------------------------------------
 
-
-# ─────────────────────────────────────────────────────────────────────────────
 #  STEP 5 — QUICK VALIDATION
-# ─────────────────────────────────────────────────────────────────────────────
 
-def validate_chunks(docs: list[Document], sample_size: int = 10) -> None:
-    """
-    Spot-check the output chunks.
-    Prints statistics and a sample of chunks to review manually.
-    Run this after loading to catch any remaining issues before embedding.
-    """
+def validate_chunks(docs: List[Document], sample_size: int = 10) -> None:
     if not docs:
         print("[VALIDATE] No documents to validate.")
         return
@@ -510,19 +433,16 @@ def validate_chunks(docs: list[Document], sample_size: int = 10) -> None:
     for ct, count in sorted(chunk_types.items(), key=lambda x: -x[1]):
         print(f"  {ct:<25} {count}")
 
-    # Check for chunks that slipped through with suspiciously low word count
     tiny = [d for d in docs if len(d.page_content.split()) < MIN_CHUNK_WORDS]
     if tiny:
         print(f"\n[WARNING] {len(tiny)} chunks below {MIN_CHUNK_WORDS} words — review these:")
         for t in tiny[:5]:
             print(f"  §{t.metadata.get('section')} — {len(t.page_content.split())} words")
 
-    # Check metadata completeness
     missing_section = [d for d in docs if 'section' not in d.metadata]
     if missing_section:
         print(f"\n[WARNING] {len(missing_section)} chunks missing 'section' metadata")
 
-    # Sample output
     import random
     print(f"\n── Sample Chunks (random {sample_size}) ──────────────────────────")
     for d in random.sample(docs, min(sample_size, len(docs))):
@@ -533,29 +453,25 @@ def validate_chunks(docs: list[Document], sample_size: int = 10) -> None:
     print("─────────────────────────────────────────────────────────────\n")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  ENTRY POINT
-# ─────────────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
 
-    PROJECT_ROOT  = Path.cwd().parent
-    three_gpp_dir = PROJECT_ROOT / "data" / "raw" / "3gpp_docs"
+# ----------------------------- Main Fxn & CLI ------------------------------------------------
+def main() -> int:
+    # Determine project root relative to this file
+    project_root = Path(__file__).resolve().parent.parent
+    default_dir = project_root / 'data' / 'raw' / '3gpp_docs'
 
-    # ── For testing: process only one file ──
-    # all_docs = load_and_chunk_3gpp_docs(three_gpp_dir, glob_pattern="37340-h30.docx")
+    three_gpp_dir = default_dir
+    if not three_gpp_dir.exists():
+        print(f"[ERROR] Directory not found: {three_gpp_dir}")
+        return 2
 
-    
-    all_docs = load_and_chunk_3gpp_docs(
-        three_gpp_dir,
-        glob_pattern="*.docx",
-        min_chunk_size=DEFAULT_CHUNK_SIZE
-    )
+    docs = load_and_chunk_3gpp_docs(three_gpp_dir, glob_pattern="*.docx", min_chunk_size=DEFAULT_CHUNK_SIZE)
+    validate_chunks(docs)
 
-    # Validate output before passing to embedding
-    validate_chunks(all_docs, sample_size=10)
+    return 0
 
-    # ── Next step: pass all_docs to your embedding + FAISS pipeline ──
-    # from embedding_pipeline import embed_and_store
-    # embed_and_store(all_docs)
-   
+#-------------Main Guard ------------------------------------------------------------
+if __name__ == '__main__':
+    raise SystemExit(main())
+#----------------------------------------------------------------------------

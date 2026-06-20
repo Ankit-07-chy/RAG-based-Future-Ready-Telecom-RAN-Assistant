@@ -1,6 +1,12 @@
 import json
 import random
 from datetime import datetime, timedelta
+from pathlib import Path
+#--------------------------------------------------------------
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ORAN_OUTPUT_DIR = PROJECT_ROOT / "data" / "raw" / "oran_datasets"
+#--------------------------------------------------------------
 
 def generate_enhanced_oran():
     alarms = [
@@ -146,14 +152,16 @@ def generate_enhanced_oran():
         "kpis": kpi_records
     }
     
-    with open("data/oran_datasets/oran_data.json", "w") as f:
+    ORAN_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = ORAN_OUTPUT_DIR / "oran_data.json"
+    with open(output_path, "w") as f:
         json.dump(dataset, f, indent=2)
-    
+
     print(f"✅ Generated O-RAN dataset:")
     print(f"   - {len(alarm_instances)} alarm instances")
     print(f"   - {len(kpi_records)} KPI records")
     print(f"   - {len(cells)} cells")
-    print("✅ Saved to: data/oran_datasets/oran_data.json")
+    print(f"✅ Saved to: {output_path}")
 
 if __name__ == "__main__":
     generate_enhanced_oran()

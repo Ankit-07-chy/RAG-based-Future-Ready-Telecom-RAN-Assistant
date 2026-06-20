@@ -24,10 +24,14 @@ wheels/
 venv/
 ENV/
 env/
+.venv
+
+data/raw/teleqna
 
 # IDE
 .vscode/
 .idea/
+
 *.swp
 *.swo
 *~
@@ -54,3 +58,6 @@ Thumbs.db
 
 # Unrelated files
 *.ipynb~
+
+# dot env
+.env 
