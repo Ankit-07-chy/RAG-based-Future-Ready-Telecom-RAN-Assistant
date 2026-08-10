@@ -85,6 +85,25 @@ def main():
     )
 
     parser.add_argument(
+        "--max-eval-samples",
+        type=int,
+        default=None,
+        help="Max TeleQnA test questions to evaluate (default: config EVAL_MAX_SAMPLES)",
+    )
+
+    parser.add_argument(
+        "--no-hybrid",
+        action="store_true",
+        help="Disable hybrid retrieval during evaluation",
+    )
+
+    parser.add_argument(
+        "--no-rerank",
+        action="store_true",
+        help="Disable cross-encoder reranking during evaluation",
+    )
+
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug logging"
@@ -123,10 +142,14 @@ def main():
             )
 
         elif args.mode == "eval":
-            logger.info(f"Mode: EVALUATION (computing KPIs)")
-            from src.evaluator import RAGEvaluator
-            evaluator = RAGEvaluator()
-            metrics = evaluator.evaluate_full_pipeline()
+            logger.info("Mode: EVALUATION (computing KPIs on TeleQnA hold-out set)")
+            from src.evaluator import run_full_evaluation
+
+            metrics = run_full_evaluation(
+                max_samples=args.max_eval_samples,
+                use_hybrid=not args.no_hybrid,
+                use_reranker=not args.no_rerank,
+            )
             logger.info(f"Evaluation complete:\n{metrics}")
 
         elif args.mode == "query":
@@ -134,13 +157,18 @@ def main():
             if not args.query:
                 print("Error: --query parameter required for query mode")
                 sys.exit(1)
-            from src.rag_query import TelecomRAG
-            rag = TelecomRAG()
-            results = rag.query(args.query, k=5)
-            for i, result in enumerate(results, 1):
-                print(f"\n[{i}] §{result.section} — {result.section_title}")
-                print(f"    Score: {result.relevance_score:.2%}")
-                print(f"    {result.content[:150]}...")
+            from src.rag_chain import RAGChain
+            chain = RAGChain()
+            response = chain.process_query(args.query, k=5, use_hybrid=True, use_llm=True)
+            print("\n" + "=" * 70)
+            print(f"QUERY      : {args.query}")
+            print(f"QUERY TYPE : {response.query_type.value}")
+            print("=" * 70)
+            print(f"\nANSWER:\n{response.answer}\n")
+            print(f"REASONING:\n{response.reasoning}\n")
+            print("SOURCES:")
+            for i, src in enumerate(response.sources, 1):
+                print(f"  [{i}] §{src['section']} | {src['title']} | {Path(src['source']).name}")
 
         elif args.mode == "demo":
             logger.info(f"Mode: DEMO (end-to-end validation)")
