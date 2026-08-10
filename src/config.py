@@ -14,8 +14,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # ── Module-level constants (spec-mandated) ────────────────────────────────────
 EMBEDDING_MODEL  = "BAAI/bge-base-en-v1.5"
-RERANKER_MODEL   = "cross-encoder/mmarco-MiniLMv2-L12-H384-v1"
-LLM_MODEL        = "mixtral-8x7b-32768"
+RERANKER_MODEL   = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+LLM_MODEL        = "llama-3.3-70b-versatile"
 TOP_K_RETRIEVE   = 20   # candidates fetched by hybrid retrieval
 TOP_K_RERANK     = 5    # chunks kept after cross-encoder re-ranking
 MIN_CHUNK_WORDS  = 50
@@ -28,6 +28,20 @@ RAW_DIR          = DATA_DIR / "raw"
 PROCESSED_DIR    = DATA_DIR / "processed"
 VECTORSTORE_PATH = DATA_DIR / "vectorstore"
 MODELS_DIR       = PROJECT_ROOT / "models"
+EVALS_DIR        = PROJECT_ROOT / "evals"
+LOGS_DIR         = PROJECT_ROOT / "logs"
+RESULTS_DIR      = PROJECT_ROOT / "results"
+
+RAW_3GPP_DIR     = RAW_DIR / "3gpp_docs"
+RAW_TELEQNA_DIR  = RAW_DIR / "teleqna_dataset"
+RAW_ORAN_DIR     = RAW_DIR / "oran_datasets"
+RAW_SIMU5G_DIR   = RAW_DIR / "simu5g"
+
+CHUNK_SIZE_WORDS    = 300   # ~390 tokens — within bge-base 512-token window (no truncation)
+CHUNK_OVERLAP_WORDS = 50
+EVAL_TEST_RATIO     = 0.2
+EVAL_MAX_SAMPLES    = 365
+EVAL_SEED           = 42
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -55,7 +69,7 @@ class RetrieverConfig:
 @dataclass
 class LLMConfig:
     """LLM configuration."""
-    model_name: str = "mixtral-8x7b-32768"
+    model_name: str = LLM_MODEL
     api_key: str = ""
     device: str = "cpu"
     quantize: bool = False
@@ -69,7 +83,7 @@ class RerankerConfig:
     """Re-ranker configuration."""
     model_name: str = RERANKER_MODEL
     top_k: int = TOP_K_RERANK
-    min_score: float = 0.0
+    min_score: float = -10.0
 
 
 @dataclass
@@ -87,7 +101,7 @@ class LoRAConfig:
 class DataConfig:
     """Data paths configuration."""
     raw_3gpp_dir: Path = Path("data/raw/3gpp_docs")
-    raw_teleqna_dir: Path = Path("data/raw/teleqna")
+    raw_teleqna_dir: Path = Path("data/raw/teleqna_dataset")
     raw_oran_dir: Path = Path("data/raw/oran_datasets")
     raw_simu5g_dir: Path = Path("data/raw/simu5g")
     processed_dir: Path = Path("data/processed")
@@ -105,12 +119,10 @@ class DataConfig:
 
 @dataclass
 class ChunkingConfig:
-    """Document chunking configuration."""
-    min_chunk_size: int = 200
-    max_chunk_size: int = 1000
-    overlap_ratio: float = 0.1
-    min_chunk_words: int = 50
-    parent_context_lines: int = 3
+    """Document chunking configuration (length-based)."""
+    chunk_size_words: int = CHUNK_SIZE_WORDS
+    chunk_overlap_words: int = CHUNK_OVERLAP_WORDS
+    min_chunk_words: int = MIN_CHUNK_WORDS
 
 
 @dataclass

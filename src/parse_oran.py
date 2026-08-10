@@ -164,16 +164,20 @@ def parse_oran_data(oran_dir: Path = None) -> List[Document]:
             page_content=chunk["content"],
             metadata={
                 "id":        chunk.get("alarm_id", chunk.get("kpi_id", "N/A")),
+                "alarm_id":  chunk.get("alarm_id", chunk.get("kpi_id", "N/A")),
                 "cell_id":   chunk.get("cell_id", "N/A"),
                 "severity":  chunk.get("severity", "N/A"),
                 "timestamp": chunk.get("timestamp", ""),
-                "doc_type":  doc_type,  # FIXED: Correct doc_type
+                "doc_type":  doc_type,
+                "doc_id":    f"oran_{chunk.get('alarm_id', chunk.get('kpi_id', 'na'))}",
                 "source":    str(json_path),
                 "word_count": chunk.get("word_count", 0),
-                "probable_cause": chunk.get("probable_cause", ""),  # FIXED: Include probable_cause
-                "kpi_name": chunk.get("kpi_name", ""),  # FIXED: Include kpi_name
-                "unit": chunk.get("unit", ""),  # FIXED: Include unit
-                "value": chunk.get("value", ""),  # FIXED: Include value
+                "section":   chunk.get("alarm_id", chunk.get("kpi_id", "N/A")),
+                "section_title": chunk.get("alarm_name", chunk.get("kpi_name", "O-RAN")),
+                "probable_cause": chunk.get("probable_cause", ""),
+                "kpi_name": chunk.get("kpi_name", ""),
+                "unit": chunk.get("unit", ""),
+                "value": chunk.get("value", ""),
             },
         ))
 

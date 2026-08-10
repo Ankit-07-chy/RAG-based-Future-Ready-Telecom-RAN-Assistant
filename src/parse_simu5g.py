@@ -138,8 +138,11 @@ def parse_simu5g_data(simu5g_dir: Path = None) -> List[Document]:
                 "failure_mode":  chunk.get("failure_type", "N/A"),
                 "simulation_id": chunk.get("simulation_id", "N/A"),
                 "doc_type":      "simu5g",
+                "doc_id":        f"simu5g_{chunk.get('scenario_id', 'na')}",
                 "source":        str(json_path),
                 "word_count":    chunk.get("word_count", 0),
+                "section":       chunk.get("scenario_id", "N/A"),
+                "section_title": chunk.get("scenario_name", "Simu5G"),
             },
         ))
     logger.info(f"parse_simu5g_data: returning {len(docs)} Documents")

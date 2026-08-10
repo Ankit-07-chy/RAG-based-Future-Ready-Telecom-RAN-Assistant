@@ -7,7 +7,7 @@ from pathlib import Path
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from src.config import get_config
+from src.config import get_config, TOP_K_RETRIEVE, TOP_K_RERANK, VECTORSTORE_PATH, RERANKER_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +193,32 @@ For Anomaly Detection:
         return base_prompt
 
 
+def format_fallback_content(page_content: str, query: str, exception: Optional[Exception] = None) -> Tuple[str, str]:
+    """Format retrieved document chunks cleanly when LLM generation falls back."""
+    import re
+    if page_content.startswith("Question:"):
+        q_match = re.search(r"Question:\s*(.*?)\s*Answer:\s*(.*?)(?:\s*Explanation:\s*(.*))?$", page_content, re.DOTALL | re.IGNORECASE)
+        if q_match:
+            question_text = q_match.group(1).strip()
+            answer_text = q_match.group(2).strip()
+            explanation_text = q_match.group(3).strip() if q_match.group(3) else ""
+            
+            answer = f"According to the retrieved reference question ('{question_text}'), the correct answer is: '{answer_text}'."
+            if explanation_text:
+                answer += f" Explanation: {explanation_text}"
+            
+            reasoning = "Retrieved direct Q&A match from TeleQnA dataset."
+            if exception:
+                reasoning += f" (LLM generation fallback due to: {exception})"
+            return answer, reasoning
+
+    answer = page_content
+    reasoning = "Retrieved matching reference passage from knowledge base."
+    if exception:
+        reasoning += f" (LLM generation fallback due to: {exception})"
+    return answer, reasoning
+
+
 class RAGChain:
     """
     Unified RAG chain combining retrieval, context formatting, and LLM generation.
@@ -214,10 +240,11 @@ class RAGChain:
             reranker: Cross-encoder reranker
             diversity_filter: Source diversity filter
         """
-        self.vector_store_path = vector_store_path or (Path(__file__).parent.parent / "data" / "vectorstore" / "faiss_index")
+        self.vector_store_path = vector_store_path or (VECTORSTORE_PATH / "faiss_index")
         self.llm_engine = llm_engine
         self.reranker = reranker
         self.diversity_filter = diversity_filter
+        self.hybrid_retriever = None
 
         # If no LLM engine provided, attempt to instantiate one from config
         if self.llm_engine is None:
@@ -240,6 +267,34 @@ class RAGChain:
 
         # Load vector store
         self._load_vector_store()
+        self._init_retrieval_components()
+
+    def _init_retrieval_components(self):
+        """Initialize hybrid retrieval, reranker, and diversity filter."""
+        cfg = get_config()
+        try:
+            from src.hybrid_retrieval import HybridRetriever
+
+            self.hybrid_retriever = HybridRetriever(vector_store=self.vector_store)
+            logger.info("Hybrid retriever initialized")
+        except Exception as exc:
+            logger.warning(f"Hybrid retriever unavailable: {exc}")
+
+        if self.reranker is None and cfg.retriever.use_reranking:
+            try:
+                from src.reranker import CrossEncoderReranker
+
+                self.reranker = CrossEncoderReranker(model_name=RERANKER_MODEL)
+            except Exception as exc:
+                logger.warning(f"Reranker unavailable: {exc}")
+
+        if self.diversity_filter is None and cfg.retriever.use_source_diversity:
+            try:
+                from src.retrieval_filters import SourceDiversityFilter
+
+                self.diversity_filter = SourceDiversityFilter()
+            except Exception as exc:
+                logger.warning(f"Diversity filter unavailable: {exc}")
 
     def _load_vector_store(self):
         """Load FAISS vector store."""
@@ -271,41 +326,36 @@ class RAGChain:
     def retrieve(
         self,
         query: str,
-        k: int = 5,
-        use_hybrid: bool = False,
+        k: int = TOP_K_RERANK,
+        use_hybrid: bool = True,
     ) -> List[Document]:
         """
-        Retrieve relevant documents.
-
-        Args:
-            query: Search query
-            k: Number of results
-            use_hybrid: Use hybrid search (semantic + keyword)
-
-        Returns:
-            List of relevant documents
+        Retrieve relevant documents using hybrid search, reranking, and diversity filters.
         """
-        if use_hybrid and hasattr(self, 'hybrid_retriever'):
-            results = self.hybrid_retriever.hybrid_search(query, k=k)
+        candidate_k = max(TOP_K_RETRIEVE, k)
+
+        if use_hybrid and self.hybrid_retriever is not None:
+            results = self.hybrid_retriever.hybrid_search(query, k=candidate_k)
             docs = [doc for doc, _ in results]
+            scores = [score for _, score in results]
         else:
-            results = self.vector_store.similarity_search_with_score(query, k=k)
+            results = self.vector_store.similarity_search_with_score(query, k=candidate_k)
             docs = [doc for doc, _ in results]
+            scores = [score for _, score in results]
 
-        # Apply source diversity filter if available
-        if self.diversity_filter and len(docs) > k:
-            filtered = self.diversity_filter.filter_by_source_diversity(
-                [(doc, 1.0) for doc in docs],
-                k=k
-            )
-            docs = [doc for doc, _ in filtered]
+        cfg = get_config()
+        paired = list(zip(docs, scores))
 
-        # Apply reranking if available
-        if self.reranker:
-            results = self.reranker.rerank(query, docs, top_k=k, min_score=0.0)
-            docs = [doc for doc, _ in results]
+        if self.reranker and docs:
+            reranked = self.reranker.rerank(query, docs, top_k=candidate_k, min_score=cfg.reranker.min_score)
+            paired = reranked
 
-        return docs[:k]
+        if self.diversity_filter and len(paired) > k:
+            paired = self.diversity_filter.filter_by_source_diversity(paired, k=k)
+        else:
+            paired = paired[:k]
+
+        return [doc for doc, _ in paired]
 
     def format_context(self, documents: List[Document]) -> str:
         """Format retrieved documents into context prompt."""
@@ -388,13 +438,16 @@ Respond in the required format (ANSWER / REASONING / SOURCES):"""
 
         # Generate response if LLM available
         if use_llm and self.llm_engine:
-            llm_response = self.generate(query, docs, query_type)
-            sections = ResponseFormatter.extract_sections(llm_response)
-            answer = sections.get("answer", "")
-            reasoning = sections.get("reasoning", "")
+            try:
+                llm_response = self.generate(query, docs, query_type)
+                sections = ResponseFormatter.extract_sections(llm_response)
+                answer = sections.get("answer", "")
+                reasoning = sections.get("reasoning", "")
+            except Exception as e:
+                logger.warning(f"LLM generation failed, falling back to retrieval: {e}")
+                answer, reasoning = format_fallback_content(docs[0].page_content, query, e)
         else:
-            answer = docs[0].page_content
-            reasoning = "Retrieved from knowledge base"
+            answer, reasoning = format_fallback_content(docs[0].page_content, query, None)
 
         # Format sources
         sources = ResponseFormatter.format_sources(docs)

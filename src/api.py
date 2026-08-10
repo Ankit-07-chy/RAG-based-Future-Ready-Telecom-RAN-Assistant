@@ -12,6 +12,7 @@ from pydantic import BaseModel
 import uvicorn
 
 from src.rag_chain import RAGChain, RAGResponse, QueryType
+from src.security import sanitize_query, SecurityError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -114,6 +115,7 @@ async def health_check():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/query", response_model=RAGResultResponse)
 @app.post("/rag/query", response_model=RAGResultResponse)
 async def rag_query(request: RAGRequest):
     """
@@ -129,11 +131,12 @@ async def rag_query(request: RAGRequest):
         Structured RAG response with answer, reasoning, and sources
     """
     try:
+        clean_query = sanitize_query(request.query)
         chain = get_rag_chain()
 
         # Process query
         response: RAGResponse = chain.process_query(
-            query=request.query,
+            query=clean_query,
             k=request.k,
             use_hybrid=request.use_hybrid,
             use_llm=request.use_llm,
@@ -161,6 +164,8 @@ async def rag_query(request: RAGRequest):
             timestamp=datetime.now().isoformat(),
         )
 
+    except SecurityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Query failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -180,11 +185,12 @@ async def retrieve_only(request: RetrievalRequest):
         List of retrieved documents with metadata
     """
     try:
+        clean_query = sanitize_query(request.query)
         chain = get_rag_chain()
 
         # Retrieve documents
         docs = chain.retrieve(
-            query=request.query,
+            query=clean_query,
             k=request.k,
             use_hybrid=request.use_hybrid,
         )
@@ -207,6 +213,8 @@ async def retrieve_only(request: RetrievalRequest):
             timestamp=datetime.now().isoformat(),
         )
 
+    except SecurityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Retrieval failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

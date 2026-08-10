@@ -36,7 +36,7 @@ class CrossEncoderReranker:
         query: str,
         documents: List,
         top_k: int = 5,
-        min_score: float = 0.0,
+        min_score: float = -10.0,
     ) -> List[Tuple]:
         """
         Re-rank documents using cross-encoder scores.

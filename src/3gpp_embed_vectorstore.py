@@ -27,7 +27,7 @@ BATCH_SIZE          = 32                       # Spec-mandated batch size.
 
 # Thresholds
 MIN_EMBEDDING_DIM   = 100                  # Sanity check for model output.
-MAX_MEMORY_USAGE    = 0.85                 # Halt if RAM exceeds 85%.
+MAX_MEMORY_USAGE    = 0.95                 # Halt if RAM exceeds 95%.
 EMBEDDING_TIMEOUT   = 300                  # 5 min timeout per batch.
 
 # Logging
@@ -130,31 +130,24 @@ def build_vector_store(
     else:
         existing_store = None
 
-    # Embed all new documents
+    # Embed all new documents ONCE, then build the index from those vectors
+    # (avoids re-embedding via FAISS.from_documents — ~2x faster on CPU).
     logger.info(f"Embedding {len(docs)} new documents...")
     new_embeddings = embed_documents(docs, embeddings)
 
-    # Create new FAISS index for the batch
-    new_index = FAISS.from_documents(
-        documents=docs,
+    text_embeddings = list(zip((d.page_content for d in docs), new_embeddings))
+    metadatas = [d.metadata for d in docs]
+    new_index = FAISS.from_embeddings(
+        text_embeddings=text_embeddings,
         embedding=embeddings,
+        metadatas=metadatas,
     )
-    new_index.index = new_index.index  # Ensure index is built
 
     if existing_store:
-        # Merge indices (FAISS does not natively support incremental adds with metadata)
-        # Workaround: Rebuild combined index
-        combined_docs = existing_store.docstore._dict.values()
-        combined_docs = list(combined_docs) + docs
-        combined_embeddings = [
-            existing_store.embedding_function.embed_query(doc.page_content)
-            for doc in combined_docs
-        ]
-        vector_store = FAISS.from_embeddings(
-            embeddings=combined_embeddings,
-            documents=combined_docs,
-            embedding=embeddings,
-        )
+        # Merge the freshly built index into the existing one (uses cached
+        # vectors — no re-embedding of either side).
+        existing_store.merge_from(new_index)
+        vector_store = existing_store
     else:
         vector_store = new_index
 

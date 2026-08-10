@@ -3,15 +3,15 @@ parse_3gpp.py
 """
 #--------------------Import-------------------------------------------------------------
 from pathlib import Path # used for file path manipulations
+import os
 import re # for regex-based cleaning and parsing
 from tqdm import tqdm # for progress bars
 import argparse # for CLI argument parsing
 import logging # for better error reporting
-from types import SimpleNamespace  # used for dot notation for simple objects
-from dataclasses import dataclass, field # used for autogeneration of few methods inside class
-from typing import List, Dict, Any # for type annotations
+from typing import List, Dict, Any, Tuple # for type annotations
 #---------------------------------------------------------------------------------------------
 
+logger = logging.getLogger(__name__)
 
 #---------------------Used Imports---------------------------------------------
 from langchain_docling import DoclingLoader # for loading .docx files (if available)
@@ -21,9 +21,15 @@ from langchain_community.vectorstores import FAISS # for storing the chunks in a
 #---------------------------------------------------------------------------------------------
 
 #---------------------Constants & Configurations---------------------------------------------
-MIN_CHUNK_WORDS      = 50    # chunks below this are discarded as noise
-DEFAULT_CHUNK_SIZE   = 200   # target min words per chunk
-PARENT_CONTEXT_LINES = 3     # how many lines of parent section to prepend to child chunks
+from src.config import (
+    MIN_CHUNK_WORDS,
+    CHUNK_SIZE_WORDS,
+    CHUNK_OVERLAP_WORDS,
+    RAW_3GPP_DIR,
+)
+
+DEFAULT_CHUNK_SIZE   = CHUNK_SIZE_WORDS
+DEFAULT_CHUNK_OVERLAP = CHUNK_OVERLAP_WORDS
 #---------------------------------------------------------------------------------------------
 
 #  STEP 1 — CLEANING
@@ -107,230 +113,224 @@ def find_sections(text: str) -> List[Dict[str, Any]]:
     """
     Find all section headers in the text.
     Returns list of dicts:
-        { 'num': '5.3.1', 'title': 'UE behaviour', 'start': <char_pos> }
+        { 'num': '5.3.1', 'title': 'UE behaviour', 'start': <char_pos>, 'end': <header_end> }
     """
     sections = []
     for match in SECTION_PATTERN.finditer(text):
-        num   = match.group(1).strip()
+        num = match.group(1).strip()
         title = match.group(2).strip()
         if is_valid_section_title(title):
             sections.append({
                 'num':   num,
                 'title': title,
-                'start': match.start()
+                'start': match.start(),
+                'end':   match.end(),
             })
     return sections
 #---------------------------------------------------------------------------------------------
 
-# STEP 3 — HIERARCHICAL CHUNKING
+# STEP 3 — LENGTH-BASED CHUNKING
 
 
-def get_parent_context(section_num: str, all_sections: List[Dict[str, Any]], full_text: str) -> str:
-    parts = section_num.split('.')
-    if len(parts) <= 1:
-        return ''  # top-level section has no parent
-
-    parent_num = '.'.join(parts[:-1])
-
-    parent = next((s for s in all_sections if s['num'] == parent_num), None)
-    if not parent:
-        return ''
-
-    parent_idx = all_sections.index(parent)
-    parent_start = parent['start']
-    if parent_idx + 1 < len(all_sections):
-        parent_end = all_sections[parent_idx + 1]['start']
-    else:
-        parent_end = len(full_text)
-
-    parent_content = full_text[parent_start:parent_end].strip()
-    parent_lines   = [l for l in parent_content.splitlines() if l.strip()]
-
-    if not parent_lines:
-        return ''
-
-    context_lines = parent_lines[:PARENT_CONTEXT_LINES]
-    return f"[Parent: §{parent_num} — {parent['title']}\n]".replace('\n]', '\n') + "\n".join(context_lines)
-
-
-def split_into_section_chunks(full_text: str) -> List[Dict[str, Any]]:
-    sections = find_sections(full_text)
-    if not sections:
-        return [{'num': '0', 'title': 'Full Document', 'content': full_text}]
-
-    raw_chunks = []
-    for i, section in enumerate(sections):
-        start = section['start']
-        end   = sections[i + 1]['start'] if i + 1 < len(sections) else len(full_text)
-
-        content = full_text[start:end].strip()
-        if content:
-            raw_chunks.append({
-                'num':     section['num'],
-                'title':   section['title'],
-                'content': content
-            })
-
-    return raw_chunks
-
-
-def get_section_depth(section_num: str) -> int:
-    return len(section_num.split('.'))
-
-
-def assemble_chunk(parent_context: str, body: str) -> str:
-    if parent_context:
-        return f"{parent_context}\n\n{body}"
-    return body
-
-
-def chunk_large_section_by_paragraphs(
-    content: str,
-    section_num: str,
-    section_title: str,
-    parent_context: str,
-    min_chunk_size: int
-) -> List[Document]:
-    paragraphs    = [p.strip() for p in content.split('\n\n') if p.strip()]
-    chunks        = []
-    current_paras = []
-    current_words = 0
-    part_num      = 1
-
-    for para in paragraphs:
-        para_words = len(para.split())
-        if current_words + para_words > min_chunk_size and current_paras:
-            chunk_text = assemble_chunk(
-                parent_context,
-                '\n\n'.join(current_paras)
-            )
-            chunks.append(Document(
-                page_content=chunk_text,
-                metadata={
-                    'section':       section_num,
-                    'section_title': section_title,
-                    'part':          part_num,
-                    'word_count':    len(chunk_text.split()),
-                    'chunk_type':    'paragraph_split'
-                }
-            ))
-            current_paras = [para]
-            current_words = para_words
-            part_num     += 1
+def _section_at_char_pos(
+    sections: List[Dict[str, Any]],
+    char_pos: int,
+) -> Dict[str, str]:
+    """Return the section header active at a character position in the document."""
+    current = {"num": "0", "title": "Full Document"}
+    for section in sections:
+        if section["start"] <= char_pos:
+            current = {"num": section["num"], "title": section["title"]}
         else:
-            current_paras.append(para)
-            current_words += para_words
-
-    if current_paras:
-        chunk_text = assemble_chunk(parent_context, '\n\n'.join(current_paras))
-        chunks.append(Document(
-            page_content=chunk_text,
-            metadata={
-                'section':       section_num,
-                'section_title': section_title,
-                'part':          part_num,
-                'word_count':    len(chunk_text.split()),
-                'chunk_type':    'paragraph_split'
-            }
-        ))
-
-    return chunks
+            break
+    return current
 
 
-def chunk_with_hierarchy(
-    full_text: str,
-    min_chunk_size: int = DEFAULT_CHUNK_SIZE
+def _word_char_spans(text: str) -> List[Tuple[int, int]]:
+    """Map each whitespace-delimited word to (start, end) char offsets in text."""
+    spans: List[Tuple[int, int]] = []
+    for match in re.finditer(r"\S+", text):
+        spans.append((match.start(), match.end()))
+    return spans
+
+
+def _section_spans(full_text: str, sections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return document spans split by section headers, including preface if present."""
+    if not sections:
+        return [{
+            "num": "0",
+            "title": "Full Document",
+            "start": 0,
+            "end": len(full_text),
+        }]
+
+    spans: List[Dict[str, Any]] = []
+    first = sections[0]
+    if first["start"] > 0 and full_text[: first["start"]].strip():
+        spans.append({
+            "num": "0",
+            "title": "Preamble",
+            "start": 0,
+            "end": first["start"],
+        })
+
+    for idx, section in enumerate(sections):
+        end = sections[idx + 1]["start"] if idx + 1 < len(sections) else len(full_text)
+        spans.append({
+            "num": section["num"],
+            "title": section["title"],
+            "start": section["start"],
+            "end": end,
+        })
+
+    return spans
+
+
+def _chunk_section(
+    section_text: str,
+    section_meta: Dict[str, Any],
+    chunk_size_words: int,
+    overlap_words: int,
+    min_chunk_words: int,
+    start_index: int,
 ) -> List[Document]:
-    all_sections = find_sections(full_text)
-    raw_chunks   = split_into_section_chunks(full_text)
-    final_docs   = []
+    """Chunk text within a section span, keeping section metadata intact."""
+    word_spans = _word_char_spans(section_text)
+    total_words = len(word_spans)
+    if total_words < min_chunk_words:
+        return []
 
-    for raw in raw_chunks:
-        section_num   = raw['num']
-        section_title = raw['title']
-        content       = raw['content']
-        word_count    = len(content.split())
+    if total_words <= chunk_size_words:
+        return [Document(
+            page_content=section_text.strip(),
+            metadata={
+                "section": section_meta["num"],
+                "section_title": section_meta["title"],
+                "word_count": total_words,
+                "chunk_type": "section_aware",
+                "chunk_index": start_index,
+            },
+        )]
 
-        parent_context = get_parent_context(section_num, all_sections, full_text)
+    step = max(1, chunk_size_words - overlap_words)
+    chunks: List[Dict[str, Any]] = []
+    chunk_index = start_index
+    start_word = 0
 
-        if word_count <= min_chunk_size:
-            chunk_text = assemble_chunk(parent_context, content)
-            if len(chunk_text.split()) >= MIN_CHUNK_WORDS:
-                final_docs.append(Document(
-                    page_content=chunk_text,
-                    metadata={
-                        'section':       section_num,
-                        'section_title': section_title,
-                        'word_count':    len(chunk_text.split()),
-                        'chunk_type':    'full_section'
-                    }
-                ))
+    while start_word < total_words:
+        end_word = min(start_word + chunk_size_words, total_words)
+        char_start = word_spans[start_word][0]
+        char_end = word_spans[end_word - 1][1]
+        chunk_text = section_text[char_start:char_end].strip()
+        word_count = len(chunk_text.split())
+
+        if end_word == total_words:
+            if word_count < min_chunk_words and chunks:
+                # Merge the small tail into the previous chunk.
+                prev = chunks[-1]
+                prev_text = prev["page_content"]
+                merged_text = f"{prev_text}\n\n{chunk_text}".strip()
+                prev["page_content"] = merged_text
+                prev["word_count"] = len(merged_text.split())
+            else:
+                chunks.append({
+                    "page_content": chunk_text,
+                    "word_count": word_count,
+                    "chunk_index": chunk_index,
+                })
+                chunk_index += 1
+            break
+
+        if word_count < min_chunk_words:
+            if chunks:
+                prev = chunks[-1]
+                prev_text = prev["page_content"]
+                merged_text = f"{prev_text}\n\n{chunk_text}".strip()
+                prev["page_content"] = merged_text
+                prev["word_count"] = len(merged_text.split())
+            break
+
+        chunks.append({
+            "page_content": chunk_text,
+            "word_count": word_count,
+            "chunk_index": chunk_index,
+        })
+        chunk_index += 1
+        start_word += step
+
+    return [Document(
+        page_content=chunk["page_content"],
+        metadata={
+            "section": section_meta["num"],
+            "section_title": section_meta["title"],
+            "word_count": chunk["word_count"],
+            "chunk_type": "section_aware",
+            "chunk_index": chunk["chunk_index"],
+        },
+    ) for chunk in chunks]
+
+
+def chunk_by_length(
+    full_text: str,
+    chunk_size_words: int = DEFAULT_CHUNK_SIZE,
+    overlap_words: int = DEFAULT_CHUNK_OVERLAP,
+    min_chunk_words: int = MIN_CHUNK_WORDS,
+) -> List[Document]:
+    """
+    Split cleaned document text into section-aware chunks.
+    Each section is chunked independently, preserving section boundaries
+    and merging short tail fragments into the previous chunk.
+    """
+    if not full_text.strip():
+        return []
+
+    sections = find_sections(full_text)
+    section_spans = _section_spans(full_text, sections)
+    final_docs: List[Document] = []
+    chunk_index = 0
+
+    for section in section_spans:
+        section_text = full_text[section["start"]:section["end"]].strip()
+        if not section_text:
             continue
 
-        current_depth    = get_section_depth(section_num)
-        subsec_pattern   = re.compile(
-            rf'^({re.escape(section_num)}\.\d+)\s{{1,4}}([A-Za-z].{{2,}}?)$',
-            re.MULTILINE
+        section_chunks = _chunk_section(
+            section_text,
+            section,
+            chunk_size_words,
+            overlap_words,
+            min_chunk_words,
+            chunk_index,
         )
-        subsec_matches   = list(subsec_pattern.finditer(content))
 
-        if subsec_matches:
-            split_positions = [m.start() for m in subsec_matches] + [len(content)]
-
-            intro = content[:split_positions[0]].strip()
-            if intro and len(intro.split()) >= MIN_CHUNK_WORDS:
-                chunk_text = assemble_chunk(parent_context, intro)
+        if not section_chunks:
+            # Keep short sections by merging them into the previous chunk when possible.
+            if final_docs:
+                prev = final_docs[-1]
+                merged_text = f"{prev.page_content}\n\n{section_text}".strip()
+                prev.metadata["word_count"] = len(merged_text.split())
+                prev.page_content = merged_text
+            else:
                 final_docs.append(Document(
-                    page_content=chunk_text,
+                    page_content=section_text,
                     metadata={
-                        'section':       section_num,
-                        'section_title': section_title,
-                        'subsection':    'intro',
-                        'word_count':    len(chunk_text.split()),
-                        'chunk_type':    'subsection_intro'
-                    }
+                        "section": section["num"],
+                        "section_title": section["title"],
+                        "word_count": len(section_text.split()),
+                        "chunk_type": "section_aware",
+                        "chunk_index": chunk_index,
+                    },
                 ))
-
-            for i, match in enumerate(subsec_matches):
-                sub_start = split_positions[i]
-                sub_end   = split_positions[i + 1]
-                sub_text  = content[sub_start:sub_end].strip()
-
-                real_sub_num   = match.group(1).strip()
-                real_sub_title = match.group(2).strip()
-
-                if not sub_text or len(sub_text.split()) < MIN_CHUNK_WORDS:
-                    continue
-
-                sub_parent_ctx = get_parent_context(real_sub_num, all_sections, full_text)
-                sub_word_count = len(sub_text.split())
-
-                if sub_word_count <= min_chunk_size:
-                    chunk_text = assemble_chunk(sub_parent_ctx, sub_text)
-                    final_docs.append(Document(
-                        page_content=chunk_text,
-                        metadata={
-                            'section':       real_sub_num,
-                            'section_title': real_sub_title,
-                            'word_count':    len(chunk_text.split()),
-                            'chunk_type':    'subsection'
-                        }
-                    ))
-                else:
-                    para_chunks = chunk_large_section_by_paragraphs(
-                        sub_text, real_sub_num, real_sub_title,
-                        sub_parent_ctx, min_chunk_size
-                    )
-                    final_docs.extend(para_chunks)
-
+                chunk_index += 1
         else:
-            para_chunks = chunk_large_section_by_paragraphs(
-                content, section_num, section_title,
-                parent_context, min_chunk_size
-            )
-            final_docs.extend(para_chunks)
+            for chunk in section_chunks:
+                final_docs.append(chunk)
+                chunk_index += 1
 
-    print(f"  → {len(final_docs)} chunks after filtering (min {MIN_CHUNK_WORDS} words)")
+    logger.info(
+        "  -> %s section-aware chunks (size=%s, overlap=%s)",
+        len(final_docs), chunk_size_words, overlap_words,
+    )
     return final_docs
 #---------------------------------------------------------------------------------------------
 
@@ -340,12 +340,13 @@ def chunk_with_hierarchy(
 def load_and_chunk_3gpp_docs_streaming(
     three_gpp_dir: Path,
     glob_pattern: str = "*.docx",
-    min_chunk_size: int = DEFAULT_CHUNK_SIZE
+    chunk_size_words: int = DEFAULT_CHUNK_SIZE,
+    overlap_words: int = DEFAULT_CHUNK_OVERLAP,
 ):
     
     doc_files = sorted(list(three_gpp_dir.glob(glob_pattern)))
     if not doc_files:
-        print(f"[WARNING] No files found in {three_gpp_dir} matching '{glob_pattern}'")
+        logger.warning("[WARNING] No files found in %s matching '%s'", three_gpp_dir, glob_pattern)
         return
 
     total_chunks = 0
@@ -354,7 +355,7 @@ def load_and_chunk_3gpp_docs_streaming(
         raw_pages = list(loader.load())
         
         if not raw_pages:
-            print(f"  [SKIP] {doc_file.name} — loader returned no content")
+            logger.warning("[SKIP] %s - loader returned no content", doc_file.name)
             continue
         
         # Verify we have content in each page
@@ -362,7 +363,7 @@ def load_and_chunk_3gpp_docs_streaming(
         pages_without_content = len(raw_pages) - len(pages_with_content)
         
         if pages_without_content > 0:
-            print(f"  [WARNING] {pages_without_content} pages have no content")
+            logger.warning("%s pages have no content", pages_without_content)
 
         page_contents = []
         for page_num, page in enumerate(raw_pages, 1):
@@ -371,42 +372,50 @@ def load_and_chunk_3gpp_docs_streaming(
         
         full_text = "\n\n".join(page_contents)
         
-        print(f"  Full document length: {len(full_text):,} characters")
-        print(f"  Pages with content: {len(page_contents)}/{len(raw_pages)}")
+        logger.info("  Full document length: %s characters", f"{len(full_text):,}")
+        logger.info("  Pages with content: %s/%s", len(page_contents), len(raw_pages))
         
         full_text = clean_document(full_text)
-        print(f"After cleaning: {len(full_text):,} chars")
+        logger.info("After cleaning: %s chars", f"{len(full_text):,}")
 
-        chunks = chunk_with_hierarchy(full_text, min_chunk_size=min_chunk_size)
+        chunks = chunk_by_length(
+            full_text,
+            chunk_size_words=chunk_size_words,
+            overlap_words=overlap_words,
+        )
 
         for chunk in chunks:
+            chunk_index = chunk.metadata.get("chunk_index", 0)
+            section = chunk.metadata.get("section", "0")
             chunk.metadata.update({
                 'source':   str(doc_file),
                 'doc_name': doc_file.name,
-                'doc_type': '3gpp_spec'
+                'doc_type': '3gpp_spec',
+                'doc_id':   f"{doc_file.stem}_{section}_{chunk_index}",
             })
 
-        print(f"    Created {len(chunks)} chunks")
+        logger.info("    Created %s chunks", len(chunks))
         total_chunks += len(chunks)
 
         del full_text, raw_pages
         yield doc_file.name, chunks
 
 
-    print(f"\n{'─'*60}")
-    print(f"Total 3GPP chunks generated: {total_chunks}")
-    print(f"{'─'*60}")
+    logger.info("Total 3GPP chunks generated: %s", total_chunks)
 
 
 # ------------------------Load all the docs and chunk them at once (legacy)----------------
 def load_and_chunk_3gpp_docs(
     three_gpp_dir: Path,
     glob_pattern: str = "*.docx",
-    min_chunk_size: int = DEFAULT_CHUNK_SIZE
+    chunk_size_words: int = DEFAULT_CHUNK_SIZE,
+    overlap_words: int = DEFAULT_CHUNK_OVERLAP,
 ) -> List[Document]:
     
     all_docs: List[Document] = []
-    for doc_name, chunks in load_and_chunk_3gpp_docs_streaming(three_gpp_dir, glob_pattern, min_chunk_size):
+    for doc_name, chunks in load_and_chunk_3gpp_docs_streaming(
+        three_gpp_dir, glob_pattern, chunk_size_words, overlap_words
+    ):
         all_docs.extend(chunks)
     return all_docs
 #---------------------------------------------------------------------------
@@ -415,7 +424,7 @@ def load_and_chunk_3gpp_docs(
 
 def validate_chunks(docs: List[Document], sample_size: int = 10) -> None:
     if not docs:
-        print("[VALIDATE] No documents to validate.")
+        logger.info("[VALIDATE] No documents to validate.")
         return
 
     word_counts = [d.metadata.get('word_count', len(d.page_content.split())) for d in docs]
@@ -424,49 +433,44 @@ def validate_chunks(docs: List[Document], sample_size: int = 10) -> None:
         ct = d.metadata.get('chunk_type', 'unknown')
         chunk_types[ct] = chunk_types.get(ct, 0) + 1
 
-    print("\n── Chunk Validation Report ──────────────────────────────────")
-    print(f"Total chunks      : {len(docs)}")
-    print(f"Min words/chunk   : {min(word_counts)}")
-    print(f"Max words/chunk   : {max(word_counts)}")
-    print(f"Avg words/chunk   : {sum(word_counts) / len(word_counts):.0f}")
-    print(f"Chunk type breakdown:")
+    logger.info("Chunk Validation Report")
+    logger.info("Total chunks      : %s", len(docs))
+    logger.info("Min words/chunk   : %s", min(word_counts))
+    logger.info("Max words/chunk   : %s", max(word_counts))
+    logger.info("Avg words/chunk   : %.0f", sum(word_counts) / len(word_counts))
     for ct, count in sorted(chunk_types.items(), key=lambda x: -x[1]):
-        print(f"  {ct:<25} {count}")
+        logger.info("  %s: %s", ct, count)
 
     tiny = [d for d in docs if len(d.page_content.split()) < MIN_CHUNK_WORDS]
     if tiny:
-        print(f"\n[WARNING] {len(tiny)} chunks below {MIN_CHUNK_WORDS} words — review these:")
-        for t in tiny[:5]:
-            print(f"  §{t.metadata.get('section')} — {len(t.page_content.split())} words")
+        logger.warning("%s chunks below %s words", len(tiny), MIN_CHUNK_WORDS)
 
     missing_section = [d for d in docs if 'section' not in d.metadata]
     if missing_section:
-        print(f"\n[WARNING] {len(missing_section)} chunks missing 'section' metadata")
+        logger.warning("%s chunks missing 'section' metadata", len(missing_section))
 
     import random
-    print(f"\n── Sample Chunks (random {sample_size}) ──────────────────────────")
     for d in random.sample(docs, min(sample_size, len(docs))):
-        print(f"\n  §{d.metadata.get('section', 'N/A')} | {d.metadata.get('section_title', '')} "
-              f"| {d.metadata.get('word_count', '?')} words | {d.metadata.get('chunk_type', '?')}")
         preview = d.page_content[:200].replace('\n', ' ')
-        print(f"  Preview: {preview}...")
-    print("─────────────────────────────────────────────────────────────\n")
+        logger.info(
+            "Sample chunk section=%s words=%s type=%s preview=%s...",
+            d.metadata.get('section', 'N/A'),
+            d.metadata.get('word_count', '?'),
+            d.metadata.get('chunk_type', '?'),
+            preview,
+        )
 
 
 
 
 # ----------------------------- Main Fxn & CLI ------------------------------------------------
 def main() -> int:
-    # Determine project root relative to this file
-    project_root = Path(__file__).resolve().parent.parent
-    default_dir = project_root / 'data' / 'raw' / '3gpp_docs'
-
-    three_gpp_dir = default_dir
+    three_gpp_dir = RAW_3GPP_DIR
     if not three_gpp_dir.exists():
         print(f"[ERROR] Directory not found: {three_gpp_dir}")
         return 2
 
-    docs = load_and_chunk_3gpp_docs(three_gpp_dir, glob_pattern="*.docx", min_chunk_size=DEFAULT_CHUNK_SIZE)
+    docs = load_and_chunk_3gpp_docs(three_gpp_dir, glob_pattern="*.docx")
     validate_chunks(docs)
 
     return 0

@@ -41,22 +41,24 @@ class SourceDiversityFilter:
         logger.info(f"Source weights: {self.source_weights}")
 
     def _get_source(self, doc) -> str:
-        """Extract source from document metadata."""
-        # Try different metadata keys for source
-        for key in ["source", "source_type", "doc_type"]:
-            if key in doc.metadata:
-                return doc.metadata[key].lower()
+        """Map a document to its canonical source family (3gpp/teleqna/oran/simu5g)."""
+        doc_type = str(doc.metadata.get("doc_type", "")).lower()
+        if doc_type:
+            if doc_type.startswith("3gpp"):
+                return "3gpp"
+            if doc_type.startswith("oran"):
+                return "oran"
+            if doc_type.startswith("teleqna"):
+                return "teleqna"
+            if doc_type.startswith("simu5g"):
+                return "simu5g"
+            return doc_type
 
         # Fallback: infer from document source path
-        source_path = doc.metadata.get("source", "")
-        if "3gpp" in source_path.lower():
-            return "3gpp"
-        elif "teleqna" in source_path.lower():
-            return "teleqna"
-        elif "oran" in source_path.lower():
-            return "oran"
-        elif "simu5g" in source_path.lower():
-            return "simu5g"
+        source_path = str(doc.metadata.get("source", "")).lower()
+        for family in ("3gpp", "teleqna", "oran", "simu5g"):
+            if family in source_path:
+                return family
 
         return "unknown"
 

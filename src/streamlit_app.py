@@ -8,6 +8,7 @@ if str(ROOT_DIR) not in sys.path:
 
 import streamlit as st
 from src.rag_chain import RAGChain
+from src.evaluator import evaluate_single_response
 from datetime import datetime
 
 @st.cache_resource
@@ -36,8 +37,14 @@ def main():
     with st.sidebar:
         st.header("Query settings")
         k = st.slider("Number of retrieved chunks", min_value=1, max_value=10, value=5)
-        use_hybrid = st.checkbox("Use hybrid retrieval", value=False)
+        use_hybrid = st.checkbox("Use hybrid retrieval", value=True)
         use_llm = st.checkbox("Generate answer text from retrieved context", value=False)
+        run_eval = st.checkbox("Evaluate this response (faithfulness metrics)", value=True)
+        reference_answer = st.text_area(
+            "Optional ground-truth answer (for accuracy scoring)",
+            height=80,
+            placeholder="Paste expected answer to score accuracy during evaluation.",
+        )
         refresh = st.button("Reload knowledge base")
 
     query = st.text_area("Enter your query", value="What is MIMO in 5G?", height=140)
@@ -54,6 +61,7 @@ def main():
             placeholder.info("Loading the RAG knowledge base and retrieving results...")
             try:
                 chain = load_rag_chain()
+                retrieved_docs = chain.retrieve(query=query, k=k, use_hybrid=use_hybrid)
                 response = chain.process_query(
                     query=query,
                     k=k,
@@ -74,6 +82,17 @@ def main():
                     st.table(response.sources)
                 else:
                     st.write("No sources were retrieved.")
+
+                if run_eval:
+                    st.subheader("Response Evaluation")
+                    eval_metrics = evaluate_single_response(
+                        query=query,
+                        answer=response.answer,
+                        reasoning=response.reasoning,
+                        retrieved_docs=retrieved_docs,
+                        reference_answer=reference_answer.strip() or None,
+                    )
+                    st.json(eval_metrics)
 
                 st.markdown(
                     f"**Query type:** {response.query_type.value}  \n"
