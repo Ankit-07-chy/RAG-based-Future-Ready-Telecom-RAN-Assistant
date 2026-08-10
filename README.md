@@ -1,4 +1,4 @@
-# 📡 Telecom RAN Assistant — Domain-Specific RAG
+# 📡 Telecom RAN Assistant (Domain-Specific RAG)
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-blue.svg?logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
@@ -7,12 +7,12 @@
 [![HuggingFace](https://img.shields.io/badge/Hugging%20Face-HF-FFD21E.svg?logo=huggingface&logoColor=black)](https://huggingface.co)
 [![FAISS](https://img.shields.io/badge/FAISS-CPU%20%2F%20GPU-green.svg)](https://github.com/facebookresearch/faiss)
 [![Groq](https://img.shields.io/badge/LLM-Groq%20Llama%203.3-orange.svg)](https://groq.com)
+[![Docker](https://img.shields.io/badge/Container-Docker-blue.svg)](https://www.docker.com)
 
-A production-grade, domain-specific Retrieval-Augmented Generation (RAG) assistant designed for Telecom Radio Access Networks (RAN). It enables subject matter experts (SMEs) to query complex 3GPP specifications, analyze O-RAN alarm/KPI logs, and trace synthetic 5G failure scenarios (Simu5G) with **grounded, source-cited, and highly explainable responses**.
+A domain-specific Retrieval-Augmented Generation (RAG) assistant designed for Telecom Radio Access Networks (RAN). It enables subject matter experts (SMEs) to query complex 3GPP specifications, analyze O-RAN alarm/KPI logs, and trace synthetic 5G failure scenarios (Simu5G) with **grounded, source-cited, and highly explainable responses**.
 
----
 
-## 📖 Table of Contents
+## Table of Contents
 1. [Core Features](#-core-features)
 2. [Architecture & Data Flow](#-architecture--data-flow)
 3. [Setup & Quick Start](#-setup--quick-start)
@@ -23,17 +23,15 @@ A production-grade, domain-specific Retrieval-Augmented Generation (RAG) assista
 8. [Troubleshooting Guide](#-troubleshooting-guide)
 9. [Project Layout](#-project-layout)
 
----
 
-## 🌟 Core Features
+## Core Features
 - **Multi-Source Knowledge Fusion**: Integrates 3GPP standards (.docx), TeleQnA multiple-choice questions, O-RAN alarm and KPI logs, and Simu5G scenario failures into a unified index.
-- **Section-Aware Processing**: Preserves real section headers (`§X.X.X` clauses) during ingestion to output precise citations.
+- **Section-Aware Processing**: Preserves real section headers during ingestion to output precise citations.
 - **Hybrid Search Fusion**: Fuses dense vector embeddings (BGE-base-en-v1.5) with sparse keyword indexes (BM25) using Reciprocal Rank Fusion (RRF) and Cross-Encoder re-ranking.
 - **Fail-Safe Generation Fallback**: Automatically degrades to a structured token-overlap passage extraction when API rate limits or expired key errors occur on the LLM client.
 
----
 
-## 🏗 Architecture & Data Flow
+## Architecture & Data Flow
 
 The assistant uses local CPU-based retrieval combined with high-speed generation using the Groq API.
 
@@ -70,9 +68,7 @@ flowchart TD
 * **Local Inference Security:** Document parsing, text chunking, embedding generation, BM25/vector search, and cross-encoder re-ranking run **fully locally on CPU**. Only the final sanitized prompt containing the user query and retrieved public contexts is transmitted to the Groq Cloud API for generation.
 * **Explainability First:** Outputs are strictly structured into `ANSWER`, `REASONING`, and `SOURCES` sections, with every claim mapped back to original sections and clauses.
 
----
-
-## ⚡ Setup & Quick Start
+## Setup & Quick Start
 
 ### 1. Prerequisites
 Ensure you have Python 3.11–3.13 installed.
@@ -104,11 +100,9 @@ Index the raw data sources (3GPP `.docx` documents, TeleQnA train split, O-RAN d
 python main.py --mode pipeline
 ```
 
----
+## Docker Deployment
 
-## 🐳 Docker Deployment
-
-The application is containerized to spin up both the FastAPI backend and Streamlit frontend services.
+The application is containerized with Docker.
 
 ### 1. Build and Start Services
 Start both services in the background using Docker Compose:
@@ -126,9 +120,7 @@ This builds the python container image, loads variables from `.env`, and maps th
 docker compose down
 ```
 
----
-
-## 🚀 Execution Modes
+## Execution Modes
 
 The assistant supports multiple entry points for operations, testing, and UI integration.
 
@@ -161,9 +153,7 @@ python main.py --mode api
 * **POST `/retrieval`**: Retrieves top-k chunks with fusion scores (useful for search-only UI clients).
 * **GET `/health`**: Returns system availability and verification status.
 
----
-
-## 📊 Evaluation & KPIs
+## Evaluation & KPIs
 
 We enforce a credible, defensible evaluation methodology to measure domain performance:
 1. **Held-out Corpus Constraint:** The TeleQnA **test split is strictly excluded** from the retrieval corpus, preventing artificial self-retrieval.
@@ -178,18 +168,15 @@ We enforce a credible, defensible evaluation methodology to measure domain perfo
 | **Recall** | $> 85\%$ | Candidate pool retrieval recall | Verified |
 | **Faithfulness** | $> 90\%$ | Groundedness check (LLM-as-judge / token-overlap) | Verified |
 
----
-
-## 🔐 Security & Input Sanitization
+## Security & Input Sanitization
 The system implements multiple defensive guardrails (`src/security.py`) to protect deployment integrity:
 * **Payload Bound Enforcement:** Strict checks on input query length.
 * **Character Sanitization:** Removes control characters and strips dangerous symbols.
 * **Basic Prompt-Injection Detection:** Sanitizes keywords related to instructions overrides, returning `HTTP 400` on malicious queries.
 * **Data Masking:** PII / sensitive identifiers (such as raw IP addresses, email hosts) are masked using the `redact()` module before storage or display.
 
----
 
-## 🛠 Troubleshooting Guide
+## Troubleshooting Guide
 
 ### 1. Neural Reranker Logit Thresholding
 * **Symptom:** Queries return "No relevant information found in knowledge base" even though relevant text exists in the database.
@@ -201,9 +188,7 @@ The system implements multiple defensive guardrails (`src/security.py`) to prote
 * **Cause:** The Groq API key in `.env` has expired or is blocked.
 * **Fix:** The query pipeline automatically detects LLM failure and falls back to a clean, formatted presentation of the top retrieved context chunk. Ensure a fresh key is pasted in `.env` for generative answers.
 
----
-
-## 📂 Project Layout
+## Project Layout
 
 ```
 ├── config/
