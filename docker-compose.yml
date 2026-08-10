@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    command: python main.py --mode api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    restart: always
+
+  streamlit:
+    build: .
+    command: streamlit run src/streamlit_app.py
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    env_file:
+      - .env
+    depends_on:
+      - api
+    restart: always

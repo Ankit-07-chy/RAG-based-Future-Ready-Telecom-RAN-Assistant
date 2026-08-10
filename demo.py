@@ -17,16 +17,20 @@ def demo_evaluator():
     logger.info("DEMO 1: Evaluation Framework")
     logger.info("=" * 70)
 
-    from src.evaluator import RAGEvaluator
+    from src.evaluator import run_full_evaluation
 
-    evaluator = RAGEvaluator()
-    metrics = evaluator.evaluate_full_pipeline()
+    try:
+        metrics = run_full_evaluation(max_samples=10)
+    except FileNotFoundError:
+        logger.warning("Vector store not built yet. Run: python main.py --mode pipeline")
+        return None
 
     logger.info(f"\nEvaluation Results:")
     logger.info(f"  MRR: {metrics.mrr:.4f}")
-    logger.info(f"  Top-5 Accuracy: {metrics.top_5_accuracy:.2%}")
+    logger.info(f"  Top-k Accuracy: {metrics.top_k_accuracy:.2%}")
+    logger.info(f"  Answer Accuracy: {metrics.accuracy:.2%}")
+    logger.info(f"  Recall: {metrics.recall:.2%}")
     logger.info(f"  Faithfulness: {metrics.faithfulness:.2%}")
-    logger.info(f"  Context Recall: {metrics.context_recall:.2%}")
 
     # Save results
     from pathlib import Path
@@ -50,7 +54,8 @@ def demo_llm_engine():
         from src.llm_engine import GroqLLMEngine
 
         logger.info("Attempting to initialize Groq LLM engine...")
-        engine = GroqLLMEngine(model_name="mixtral-8x7b-32768")
+        from src.config import LLM_MODEL
+        engine = GroqLLMEngine(model_name=LLM_MODEL)
 
         logger.info("Generating sample response...")
         prompt = "Briefly explain what MIMO is in 5G networks."

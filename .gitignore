@@ -9,6 +9,7 @@ develop-eggs/
 dist/
 downloads/
 eggs/
+.cursor/
 .eggs/
 lib/
 lib64/
@@ -61,3 +62,8 @@ Thumbs.db
 
 # dot env
 .env 
+docs/
+evals/
+logs/ 
+models/
+results/

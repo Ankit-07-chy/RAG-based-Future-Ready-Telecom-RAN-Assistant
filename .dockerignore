@@ -1,0 +1,14 @@
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+logs/
+evals/evaluation_per_question_*.csv
+evals/evaluation_results_*.json
+data/vectorstore/faiss_index/
+C:\\Users\\ankit\\.gemini\\antigravity-ide\\brain\\
