@@ -1,12 +1,10 @@
 {
-  "mrr": 1.0,
-  "top_3_accuracy": 1.0,
-  "top_5_accuracy": 1.0,
-  "recall_at_5": 1.0,
-  "recall_at_10": 1.0,
-  "semantic_match_accuracy": 0.0,
-  "exact_match_accuracy": 0.0,
-  "faithfulness": 1.0,
-  "context_recall": 1.0,
-  "timestamp": "2026-06-15T11:04:40.148318"
+  "mrr": 0.0,
+  "top_k_accuracy": 0.0,
+  "accuracy": 0.3,
+  "recall": 0.1,
+  "faithfulness": 0.03214285714285714,
+  "num_samples": 10,
+  "avg_latency_ms": 2235.6,
+  "timestamp": "2026-08-10T09:35:47.370961"
 }
