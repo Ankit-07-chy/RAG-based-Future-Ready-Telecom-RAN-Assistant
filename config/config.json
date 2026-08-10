@@ -15,7 +15,7 @@
     "use_source_diversity": true
   },
   "llm": {
-    "model_name": "mixtral-8x7b-32768",
+    "model_name": "llama-3.3-70b-versatile",
     "api_key": "",
     "device": "cpu",
     "quantize": false,
@@ -24,9 +24,9 @@
     "top_p": 0.95
   },
   "reranker": {
-    "model_name": "cross-encoder/mmarco-MiniLMv2-L12-H384-v1",
+    "model_name": "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
     "top_k": 5,
-    "min_score": 0.0
+    "min_score": -10.0
   },
   "lora": {
     "rank": 16,
@@ -41,18 +41,16 @@
   },
   "data": {
     "raw_3gpp_dir": "C:\\Users\\ankit\\Desktop\\Telecom_Rag\\data\\raw\\3gpp_docs",
-    "raw_teleqna_dir": "C:\\Users\\ankit\\Desktop\\Telecom_Rag\\data\\raw\\teleqna",
+    "raw_teleqna_dir": "C:\\Users\\ankit\\Desktop\\Telecom_Rag\\data\\raw\\teleqna_dataset",
     "raw_oran_dir": "C:\\Users\\ankit\\Desktop\\Telecom_Rag\\data\\raw\\oran_datasets",
     "raw_simu5g_dir": "C:\\Users\\ankit\\Desktop\\Telecom_Rag\\data\\raw\\simu5g",
     "processed_dir": "C:\\Users\\ankit\\Desktop\\Telecom_Rag\\data\\processed",
     "vectorstore_dir": "C:\\Users\\ankit\\Desktop\\Telecom_Rag\\data\\vectorstore"
   },
   "chunking": {
-    "min_chunk_size": 200,
-    "max_chunk_size": 1000,
-    "overlap_ratio": 0.1,
-    "min_chunk_words": 50,
-    "parent_context_lines": 3
+    "chunk_size_words": 300,
+    "chunk_overlap_words": 50,
+    "min_chunk_words": 50
   },
   "api": {
     "host": "0.0.0.0",
