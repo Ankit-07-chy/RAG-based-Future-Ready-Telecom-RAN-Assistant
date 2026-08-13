@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   api:
-    build: .
+    image: telecom_rag_app:latest
     command: python main.py --mode api
     ports:
       - "8000:8000"
@@ -15,7 +15,7 @@ services:
     restart: always
 
   streamlit:
-    build: .
+    image: telecom_rag_app:latest
     command: streamlit run src/streamlit_app.py
     ports:
       - "8501:8501"

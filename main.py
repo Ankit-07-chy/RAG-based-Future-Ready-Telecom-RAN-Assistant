@@ -135,7 +135,7 @@ def main():
             import uvicorn
             from src.api import app
             uvicorn.run(
-                app,
+                "src.api:app",
                 host=args.host,
                 port=args.port,
                 workers=args.workers
