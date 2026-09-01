@@ -160,13 +160,13 @@ We enforce a credible, defensible evaluation methodology to measure domain perfo
 2. **Answer Coverage Approximation:** A chunk is considered "answer-bearing" if it contains $\ge 50\%$ of the ground-truth answer's content tokens.
 3. **Structured MCQ Accuracy:** Scored based on whether the LLM successfully extracts and chooses the correct multiple-choice option index.
 
-| Metric | Target | Description | Status |
+| Metric | Target | Description | 
 |---|---|---|---|
-| **MRR** | $> 75\%$ | Mean Reciprocal Rank of the first answer-bearing chunk | Verified |
-| **Top-k Accuracy** | $> 85\%$ | Ratio of queries with relevant chunk present in top-k | Verified |
-| **Accuracy** | $> 80\%$ | Multiple choice QnA accuracy | Verified |
-| **Recall** | $> 85\%$ | Candidate pool retrieval recall | Verified |
-| **Faithfulness** | $> 90\%$ | Groundedness check (LLM-as-judge / token-overlap) | Verified |
+| **MRR** | $> 75\%$ | Mean Reciprocal Rank of the first answer-bearing chunk |
+| **Top-k Accuracy** | $> 85\%$ | Ratio of queries with relevant chunk present in top-k | 
+| **Accuracy** | $> 80\%$ | Multiple choice QnA accuracy |
+| **Recall** | $> 85\%$ | Candidate pool retrieval recall | 
+| **Faithfulness** | $> 90\%$ | Groundedness check (LLM-as-judge / token-overlap) | 
 
 ## Security & Input Sanitization
 The system implements multiple defensive guardrails (`src/security.py`) to protect deployment integrity:
